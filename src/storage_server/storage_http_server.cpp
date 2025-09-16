@@ -94,6 +94,11 @@ StorageHttpServer::StorageHttpServer(const std::string &host, int port,
     index = new hnswlib::HierarchicalNSW<float>(
         space, config->num_data, config->max_m / 2, config->ef_construction);
     neighbor = new Neighbor(config->num_data);
+
+    ParallelFor(0, config->num_data, 0, [&](size_t id, size_t threadId) {
+        index->addPoint(randVecs(1, config->dim).data(), id);
+    });
+
     rocksdb::DB *db;
     rocksdb::Options options;
     options.create_if_missing = true;
