@@ -30,7 +30,7 @@ IndexEngine::search_vectors(const std::vector<float> &query, int k,
 
     for (int i = 0; i < shard_num; i++) {
         threads.push_back(std::thread([&, i]() {
-            unsigned int entry_node = pool->get_entry_node(i);
+            unsigned int entry_node = pools->get_entry_node(i);
             ParallelFor(0, query_num, 0, [&](size_t index, size_t threadId) {
                 std::vector<long> ids;
                 std::vector<float> distances;
@@ -40,14 +40,14 @@ IndexEngine::search_vectors(const std::vector<float> &query, int k,
                 auto end_time = std::chrono::high_resolution_clock::now();
                 std::chrono::duration<double> elapsed_time =
                     end_time - start_time;
-                GlobalLogger->info("Thread {}: Search time: {} seconds",
-                                   threadId, elapsed_time.count());
-                GlobalLogger->info("get hit: {}, get total: {}",
-                                   get_hit, get_total);
-                GlobalLogger->info("rdma request: {}, rdma elapsed time: {}",
-                                   rdma_request,
-                                   rdma_elpased_time.count());
-                GlobalLogger->info("get block time: {}", get_block_time.count());
+                // GlobalLogger->info("Thread {}: Search time: {} seconds",
+                //                    threadId, elapsed_time.count());
+                // GlobalLogger->info("get hit: {}, get total: {}",
+                //                    get_hit, get_total);
+                // GlobalLogger->info("rdma request: {}, rdma elapsed time: {}",
+                //                    rdma_request,
+                //                    rdma_elpased_time.count());
+                // GlobalLogger->info("get block time: {}", get_block_time.count());
                 for (int j = 0; j < k; j++) {
                     std::lock_guard<std::mutex> lock(queue_mutex[index]);
                     result_queue[index].push(

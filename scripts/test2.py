@@ -59,7 +59,7 @@ def main():
     # 参数设置
     num_threads = 4          # 并发线程数
     num_operations = 100      # 每个线程执行的总操作数
-    query_ratio = 1         # 查询操作的比例（0~1）
+    query_ratio = 0.9         # 查询操作的比例（0~1）
     vector_dim = 128          # 向量维度
     search_k = 5             # 查询返回的K个最近邻
     start_time = time.time()

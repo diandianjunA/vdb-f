@@ -7,24 +7,6 @@
 #include <rapidjson/writer.h>
 #include <thread>
 
-StorageHttpServer::StorageHttpServer(const std::string &host, int port)
-    : host(host), port(port) {
-    server.Post("/connectRdma",
-                [this](const httplib::Request &req, httplib::Response &res) {
-                    connectRdma(req, res);
-                });
-    server.Post("/insert",
-                [this](const httplib::Request &req, httplib::Response &res) {
-                    insertHandler(req, res);
-                });
-    space = new hnswlib::L2Space(config->dim);
-    index = new hnswlib::HierarchicalNSW<float>(
-        space, config->num_data, config->max_m / 2, config->ef_construction);
-    neighbor = new Neighbor(config->num_data);
-}
-
-void StorageHttpServer::start() { server.listen(host.c_str(), port); }
-
 template <class Function>
 inline void ParallelFor(size_t start, size_t end, size_t numThreads,
                         Function fn) {
@@ -80,6 +62,49 @@ inline void ParallelFor(size_t start, size_t end, size_t numThreads,
         }
     }
 }
+
+std::vector<float> randVecs(size_t num, size_t dim) {
+    std::vector<float> v(num * dim);
+    // 生成指定数量的随机向量
+    for (size_t i = 0; i < num; ++i) {
+        for (size_t j = 0; j < dim; ++j) {
+            v[i * dim + j] = static_cast<float>(rand()) / RAND_MAX;
+        }
+    }
+    return v;
+}
+
+StorageHttpServer::StorageHttpServer(const std::string &host, int port,
+                                     const std::string &db_path)
+    : host(host), port(port) {
+    server.Post("/connectRdma",
+                [this](const httplib::Request &req, httplib::Response &res) {
+                    connectRdma(req, res);
+                });
+    server.Post("/insert",
+                [this](const httplib::Request &req, httplib::Response &res) {
+                    insertHandler(req, res);
+                });
+    server.Post("/query",
+                [this](const httplib::Request &req, httplib::Response &res) {
+                    queryHandler(req, res);
+                });
+
+    space = new hnswlib::L2Space(config->dim);
+    index = new hnswlib::HierarchicalNSW<float>(
+        space, config->num_data, config->max_m / 2, config->ef_construction);
+    neighbor = new Neighbor(config->num_data);
+    rocksdb::DB *db;
+    rocksdb::Options options;
+    options.create_if_missing = true;
+    rocksdb::Status status = rocksdb::DB::Open(options, db_path, &db);
+    if (!status.ok()) {
+        throw std::runtime_error("rocksdb open error");
+    }
+    db_ = db;
+}
+
+void StorageHttpServer::start() { server.listen(host.c_str(), port); }
 
 void setJsonResponse(const rapidjson::Document &json_response,
                      httplib::Response &res) {
@@ -205,12 +230,18 @@ void StorageHttpServer::insertHandler(const httplib::Request &req,
         if (obj.HasMember("vector") && obj["vector"].IsArray() &&
             obj.HasMember("id") && obj["id"].IsInt()) {
             const rapidjson::Value &row = obj["vector"];
+            int id = obj["id"].GetInt();
             std::vector<float> vector;
             for (rapidjson::SizeType j = 0; j < row.Size(); j++) {
                 vector.push_back(row[j].GetFloat());
             }
             vectors.insert(vectors.end(), vector.begin(), vector.end());
-            ids.push_back(obj["id"].GetInt());
+            ids.push_back(id);
+            rapidjson::StringBuffer buffer;
+            rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
+            row.Accept(writer);
+            std::string value = buffer.GetString();
+            db_->Put(rocksdb::WriteOptions(), std::to_string(id), value);
         } else {
             throw std::runtime_error(
                 "Missing vectors or id parameter in the request");
@@ -243,5 +274,46 @@ void StorageHttpServer::insertHandler(const httplib::Request &req,
     // 添加retCode到响应
     json_response.AddMember("code", 0, allocator);
 
+    setJsonResponse(json_response, res);
+}
+
+// 请求给出id，返回rocksdb中存储的数据
+void StorageHttpServer::queryHandler(const httplib::Request& req, httplib::Response& res) {
+    GlobalLogger->debug("Received query request");
+
+    rapidjson::Document json_request;
+    json_request.Parse(req.body.c_str());
+
+    // 检查JSON文档是否为有效对象
+    if (!json_request.IsObject()) {
+        GlobalLogger->error("Invalid JSON request");
+        res.status = 400;
+        setErrorJsonResponse(res, 400, "Invalid JSON request");
+        return;
+    }
+
+    const rapidjson::Value &ids = json_request["ids"];
+
+    if (!ids.IsArray()) {
+        throw std::runtime_error("ids type not match");
+    }
+
+    std::vector<int> id_list;
+    for (auto &id : ids.GetArray()) {
+        id_list.push_back(id.GetInt());
+    }
+
+    std::vector<std::string> values;
+    for (auto &id : id_list) {
+        std::string value;
+        db_->Get(rocksdb::ReadOptions(), std::to_string(id), &value);
+        values.push_back(value);
+    }
+
+    rapidjson::Document json_response;
+    json_response.SetObject();
+    rapidjson::Document::AllocatorType &allocator =
+        json_response.GetAllocator();
+    json_response.AddMember("values", rapidjson::StringRef(values[0].c_str()), allocator);
     setJsonResponse(json_response, res);
 }

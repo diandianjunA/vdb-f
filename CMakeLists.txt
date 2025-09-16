@@ -6,7 +6,6 @@ set(CMAKE_CXX_STANDARD 20)
 # set(CMAKE_CXX_STANDARD_REQUIRED True)  
 
 set (CMAKE_CXX_LINK_EXECUTABLE "${CMAKE_CXX_LINK_EXECUTABLE} -ldl") 
-# set (LIBCUVS, "/home/xjs/anaconda3/pkgs/libcuvs-24.12.00-cuda12_241211_g0ce6a03_0/lib")
 
 include_directories(
     ${CMAKE_CURRENT_SOURCE_DIR}
@@ -26,9 +25,9 @@ add_subdirectory(src/cuda)
 set (EXTRA_LIBS ${EXTRA_LIBS} gpu)
 
 include_directories(src/include)
-link_directories(/usr/local/lib)
 include_directories(src/cuda)
 link_directories(/usr/lib)
+link_directories(/usr/local/lib)
 link_directories(/usr/lib/x86_64-linux-gnu)
 link_directories(/usr/local/cuda/lib64)
 
@@ -48,14 +47,9 @@ file(GLOB STORAGE_SERVER_SOURCES
     src/rdma/rdma_pool.cpp
     src/config/*.cpp
 )
-# file(GLOB MASTER_SERVER_SOURCES master_server/*.cpp log/*.cpp)
-# file(GLOB PROXY_SERVER_SOURCES proxy_server/*.cpp log/*.cpp)
-
 
 add_executable(index_server src/index_server.cpp ${INDEX_SERVER_SOURCES})
 add_executable(storage_server src/storage_server.cpp ${STORAGE_SERVER_SOURCES})
-# add_executable(master_server src/master_server.cpp ${MASTER_SERVER_SOURCES})
-# add_executable(proxy_server src/proxy_server.cpp ${PROXY_SERVER_SOURCES})
 
 target_link_libraries(index_server PRIVATE ${EXTRA_LIBS}
     ibverbs etcd-cpp-api cpprest spdlog cuda cudart
@@ -63,10 +57,5 @@ target_link_libraries(index_server PRIVATE ${EXTRA_LIBS}
 target_link_libraries(storage_server PRIVATE
     ibverbs 
     spdlog
+    rocksdb snappy z bz2 zstd lz4
 )
-# target_link_libraries(master_server PRIVATE
-#     etcd-cpp-api cpprest
-# )
-# target_link_libraries(proxy_server PRIVATE
-#     curl pthread
-# )

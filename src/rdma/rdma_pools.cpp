@@ -3,10 +3,10 @@
 #include "log/logger.h"
 #include "config/config.h"
 
-std::shared_ptr<RdmaPools> pool;
+std::shared_ptr<RdmaPools> pools;
 
 RdmaPools::RdmaPools(int size, void *buf, size_t memory_region_size)
-    : buffer(buf, memory_region_size), size(size) {
+    : buffer(buf, memory_region_size) {
     for (int i = 0; i < size; i++) {
         add_qp();
     }
@@ -47,32 +47,32 @@ int RdmaPools::rdma_read(int qp_id, char *local_addr, size_t size,
             },
     };
     struct ibv_send_wr *bad_wr;
-    rdma_request++;
-    std::chrono::high_resolution_clock::time_point start_time =
-        std::chrono::high_resolution_clock::now();
+    // rdma_request++;
+    // std::chrono::high_resolution_clock::time_point start_time =
+    //     std::chrono::high_resolution_clock::now();
     int rc;
     if (rc = ibv_post_send(entry->get_qp(), &wr, &bad_wr)) {
         GlobalLogger->error("failed to post read WR, rc = {}", rc);
         return -1;
     }
     rc = entry->poll_completion();
-    if (rc == -1) {
-        GlobalLogger->error("failed to poll CQ");
-        GlobalLogger->error("local_addr = {:#x}, size = {}, offset = {}",
-                            (uint64_t)local_addr, size, offset);
-        GlobalLogger->error("remote_addr = {:#x}, rkey = {:#x}",
-                            entry->get_remote_props()->addr + offset,
-                            entry->get_remote_props()->rkey);
-        GlobalLogger->error("qp_num = {:#x}, lid = {:#x}",
-                            entry->get_qp()->qp_num, device->get_lid());
-        GlobalLogger->error("rdma_request = {}", rdma_request);
-        return -1;
-    }
-    std::chrono::high_resolution_clock::time_point end_time =
-        std::chrono::high_resolution_clock::now();
-    rdma_elpased_time +=
-        std::chrono::duration_cast<std::chrono::duration<double>>(
-            end_time - start_time);
+    // if (rc == -1) {
+    //     GlobalLogger->error("failed to poll CQ");
+    //     GlobalLogger->error("local_addr = {:#x}, size = {}, offset = {}",
+    //                         (uint64_t)local_addr, size, offset);
+    //     GlobalLogger->error("remote_addr = {:#x}, rkey = {:#x}",
+    //                         entry->get_remote_props()->addr + offset,
+    //                         entry->get_remote_props()->rkey);
+    //     GlobalLogger->error("qp_num = {:#x}, lid = {:#x}",
+    //                         entry->get_qp()->qp_num, device->get_lid());
+    //     GlobalLogger->error("rdma_request = {}", rdma_request);
+    //     return -1;
+    // }
+    // std::chrono::high_resolution_clock::time_point end_time =
+    //     std::chrono::high_resolution_clock::now();
+    // rdma_elpased_time +=
+    //     std::chrono::duration_cast<std::chrono::duration<double>>(
+    //         end_time - start_time);
     return 0;
 }
 
@@ -82,7 +82,7 @@ QPEntry *RdmaPools::add_qp() {
 }
 
 int RdmaPools::get_entry_node(int qp_id) {
-    if (qp_id >= size) {
+    if (qp_id >= qps.size()) {
         GlobalLogger->error("QP id out of range");
         return -1;
     }
@@ -125,8 +125,14 @@ void RdmaPools::connect_qp(int qp_id) {
     // }
     // std::string host = nodeDoc["host"].GetString();
     // int port = nodeDoc["port"].GetInt();
-    std::string host = "192.168.6.201";
+    // int port;
+    // if (qp_id % 2 == 0) {
+    //     port = 3000;
+    // } else {
+    //     port = 3001;
+    // }
     int port = 3000;
+    std::string host = "192.168.6.201";
     auto [remote_props, entry_node, neighbor] =
         IndexHttpClient(host, port).connectRdma(addr, rkey, qp_num, lid);
     entry->set_entry_node(entry_node);

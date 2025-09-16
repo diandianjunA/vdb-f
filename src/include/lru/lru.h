@@ -4,10 +4,11 @@
 #include <atomic>
 #include <condition_variable>
 #include <list>
+#include <memory>
 #include <mutex>
+#include <shared_mutex>
 #include <unordered_map>
 #include <vector>
-#include <memory>
 
 struct Frame {
 
@@ -17,67 +18,64 @@ struct Frame {
 
     ~Frame() {}
 
+    // 获取读锁（RAII）
+    [[nodiscard]] auto acquire_read() {
+        return std::shared_lock<std::shared_mutex>(mutex);
+    }
+
+    // 获取写锁（RAII）
+    [[nodiscard]] auto acquire_write() {
+        return std::unique_lock<std::shared_mutex>(mutex);
+    }
+
+    [[nodiscard]] auto try_acquire_write() {
+        return std::unique_lock<std::shared_mutex>(mutex, std::try_to_lock);
+    }
+
     int frame_id;
     int block_id;
     char *data;
-    std::atomic<int> use_count{0}; // 引用计数
+    std::shared_mutex mutex;
 };
 
 class LRU {
   public:
-    LRU(size_t capacity, char *buffer_);
+    LRU(size_t capacity, char *buffer_, std::function<void(int, char *)> load, int element_per_shard = 30);
 
     ~LRU() {}
 
-    char *get_block(int block_id);
-    void release_block(int block_id) {
-        // std::lock_guard<std::mutex> lock(cache_mutex_);
-        auto it = cache_map_.find(block_id);
-        if (it != cache_map_.end()) {
-            release_frame(it->second);
-        }
-    }
-    void load_block_message(std::vector<char *> &data,
-                            std::vector<int> &data_content);
+    std::pair<char *, std::shared_lock<std::shared_mutex>>
+    get_block(int block_id);
 
   private:
+    struct Shard {
+        std::mutex mutex;
+        size_t capacity;
+        std::list<int> lru_list;
+        std::unordered_map<int, std::list<int>::iterator> cache_map;
+
+        Shard() : capacity(0) {}
+        Shard(size_t capacity) : capacity(capacity) {}
+        Shard(const Shard &other) = delete;
+        Shard(Shard &&other) {
+            capacity = other.capacity;
+            lru_list = std::move(other.lru_list);
+            cache_map = std::move(other.cache_map);
+        }
+        ~Shard() {}
+    };
+
+    std::vector<Shard> shards_;
+    Shard &GetShard(const int &key) {
+        static thread_local std::hash<int> hash;
+        size_t hash_value = hash(key);
+        return shards_[hash_value % shards_.size()];
+    }
+
     char *buffer_;
-    std::mutex cache_mutex_;
-    std::mutex lru_mutex_;
-    std::condition_variable cv_;
-    std::unordered_map<int, int> cache_map_;
     std::vector<Frame *> frame_map;
-    std::list<int> lru_list_;
     size_t capacity_;
-
-    void acquire_frame(int frame_id) {
-        if (config->block_policy == BLOCK_POLICY::LOCKED) {
-            frame_map[frame_id]->use_count.fetch_add(1,
-                                                     std::memory_order_relaxed);
-            std::lock_guard<std::mutex> lock(lru_mutex_);
-            lru_list_.remove(frame_id); // 移除旧位置
-        } else {
-            std::lock_guard<std::mutex> lock(lru_mutex_);
-            lru_list_.remove(frame_id); // 移除旧位置
-            lru_list_.push_front(frame_id); // 添加到LRU列表尾部
-        }
-    }
-
-    // 释放块时减少引用计数
-    void release_frame(int frame_id) {
-        if (config->block_policy == BLOCK_POLICY::LOCKED) {
-            if (frame_map[frame_id]->use_count.fetch_sub(
-                    1, std::memory_order_relaxed) == 1) {
-                std::lock_guard<std::mutex> lock(lru_mutex_);
-                lru_list_.remove(frame_id); // 移除旧位置
-                lru_list_.push_front(frame_id); // 添m加到LRU列表尾部
-            }
-        }
-    }
-    // 安全驱逐逻辑
-    int find_victim();
-
-    void load_from_rdma(int block_id, char *addr);
+    std::function<void(int, char *)> load_;
 };
 
 extern std::shared_ptr<LRU> lru_;

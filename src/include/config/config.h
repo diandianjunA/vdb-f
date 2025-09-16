@@ -2,17 +2,15 @@
 #include <string>
 #include <memory>
 #include <chrono>
-
-extern int get_total;
-extern int get_hit;
-extern int rdma_request;
-extern std::chrono::duration<double> rdma_elpased_time;
-extern std::chrono::duration<double> get_block_time;
+#include <map>
+#include "log/logger.h"
 
 enum BLOCK_POLICY {
     LOCKED,
     UNLOCKED,
 };
+
+std::map<std::string, std::string> readConfig(const std::string& filename);
 
 class Config {
 

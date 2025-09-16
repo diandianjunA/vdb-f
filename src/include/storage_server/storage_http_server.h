@@ -6,6 +6,7 @@
 #include "rdma/rdma_pool.h"
 #include "hnswlib/hnswlib.h"
 #include "storage_server/neighbor_base.h"
+#include <rocksdb/db.h>
 
 class StorageHttpServer {
   public:
@@ -13,7 +14,13 @@ class StorageHttpServer {
         CONNECT_RDMA,
     };
 
-    StorageHttpServer(const std::string &host, int port);
+    StorageHttpServer(const std::string &host, int port, const std::string& db_path);
+    ~StorageHttpServer() {
+        delete space;
+        delete index;
+        delete neighbor;
+        delete db_;
+    }
     void start();
     void* get_buffer() { return index->data_level0_memory_; }
     size_t get_size() { return index->max_elements_ * index->size_data_per_element_; }
@@ -21,6 +28,7 @@ class StorageHttpServer {
   private:
     void connectRdma(const httplib::Request &req, httplib::Response &res);
     void insertHandler(const httplib::Request& req, httplib::Response& res);
+    void queryHandler(const httplib::Request& req, httplib::Response& res);
 
     httplib::Server server;
     std::string host;
@@ -28,4 +36,5 @@ class StorageHttpServer {
     hnswlib::SpaceInterface<float>* space;
     hnswlib::HierarchicalNSW<float>* index;
     Neighbor* neighbor;
+    rocksdb::DB* db_;
 };
